@@ -8,6 +8,7 @@ import * as sqs from "aws-cdk-lib/aws-sqs";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as path from 'path';
 
 import { Construct } from "constructs";
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -21,6 +22,43 @@ export class EDAAppStack extends cdk.Stack {
       autoDeleteObjects: true,
       publicReadAccess: false,
     });
+
+      // Integration infrastructure
+
+    const queue = new sqs.Queue(this, "img-uploadeded-q", {
+      receiveMessageWaitTime: cdk.Duration.seconds(5),
+    });
+
+  // Lambda functions
+
+    const processImageFn = new lambdanode.NodejsFunction(
+      this,
+      "ProcessImage",
+      {
+        runtime: lambda.Runtime.NODEJS_18_X,
+        entry: `${__dirname}/../lambdas/processImage.ts`,
+        timeout: cdk.Duration.seconds(15),
+        memorySize: 128,
+      }
+    );
+
+    // S3 --> SQS
+    imagesBucket.addEventNotification(
+      s3.EventType.OBJECT_CREATED,
+      new s3n.SqsDestination(queue)
+    );
+
+   // SQS --> Lambda
+    const newImageEventSource = new events.SqsEventSource(queue, {
+      batchSize: 5,
+      maxBatchingWindow: cdk.Duration.seconds(5),
+    });
+
+    processImageFn.addEventSource(newImageEventSource);
+
+    // Permissions
+
+    imagesBucket.grantRead(processImageFn);
 
     // Output
     
