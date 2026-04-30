@@ -46,6 +46,19 @@ export class EDAAppStack extends cdk.Stack {
       receiveMessageWaitTime: cdk.Duration.seconds(10),
     });
 
+    const dlq = new sqs.Queue(this, "img-dlq", {
+      receiveMessageWaitTime: cdk.Duration.seconds(10),
+ });
+    // UPDATE
+    const queue = new sqs.Queue(this, "img-created-queue", {
+      receiveMessageWaitTime: cdk.Duration.seconds(10),
+      deadLetterQueue: {
+        queue: dlq,
+        maxReceiveCount: 1
+ }
+ });
+
+
 
   // Lambda functions
 
@@ -83,6 +96,16 @@ export class EDAAppStack extends cdk.Stack {
       entry: `${__dirname}/../lambdas/mailer.ts`,
     });
 
+    const rejectedFileFn = new lambdanode.NodejsFunction(
+    this,
+    "RejectedFileFn",
+    {
+      runtime: lambda.Runtime.NODEJS_20_X,
+      entry: `${__dirname}/../lambdas/rejectedFile.ts`,
+      timeout: cdk.Duration.seconds(15),
+      memorySize: 128,
+    }
+  );
 
 
    // SQS --> Lambda
@@ -95,6 +118,12 @@ export class EDAAppStack extends cdk.Stack {
       batchSize: 5,
       maxBatchingWindow: cdk.Duration.seconds(5),
     }); 
+
+    const rejectedFileEventSource = new events.SqsEventSource(dlq, {
+      batchSize: 5,
+      maxBatchingWindow: cdk.Duration.seconds(10),
+    });
+
 
 
     // S3 --> SQS
@@ -115,6 +144,8 @@ export class EDAAppStack extends cdk.Stack {
     persistImageDataFn.addEventSource(newImageEventSource);
 
     mailerFn.addEventSource(newImageMailEventSource);
+
+    rejectedFileFn.addEventSource(rejectedFileEventSource);
 
       mailerFn.addToRolePolicy(
       new iam.PolicyStatement({
